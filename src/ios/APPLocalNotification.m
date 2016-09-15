@@ -26,6 +26,8 @@
 #import "UIApplication+APPLocalNotification.h"
 #import "UILocalNotification+APPLocalNotification.h"
 
+@import UserNotifications;
+
 @interface APPLocalNotification ()
 
 // Retrieves the application state
@@ -72,12 +74,59 @@
 
     [self.commandDelegate runInBackground:^{
         for (NSDictionary* options in notifications) {
-            UILocalNotification* notification;
 
+            UILocalNotification* notification;
             notification = [[UILocalNotification alloc]
                             initWithOptions:options];
+            notification.timeZone = [NSTimeZone defaultTimeZone];
+            notification.repeatInterval = 0;
 
-            [self scheduleLocalNotification:[notification copy]];
+
+            if (IsAtLeastiOSVersion(@"10.0")) {
+
+                UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+                content.title = [NSString localizedUserNotificationStringForKey:notification.alertTitle arguments:nil];
+                content.body = [NSString localizedUserNotificationStringForKey:notification.alertBody
+                                                                     arguments:nil];
+                content.sound = [UNNotificationSound defaultSound];
+                content.userInfo = notification.userInfo;
+
+
+                NSDate *fireDate = notification.fireDate;
+                if(fireDate==nil) {
+                    fireDate = [NSDate date];
+                }
+
+                NSCalendar *gregorianCalendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSGregorianCalendar];
+                NSDateComponents *dateComponents = [gregorianCalendar components:NSYearCalendarUnit | NSMonthCalendarUnit | NSDayCalendarUnit
+                                                    | NSHourCalendarUnit | NSMinuteCalendarUnit | NSSecondCalendarUnit
+                                                                        fromDate:fireDate];
+                [dateComponents setTimeZone:[NSTimeZone defaultTimeZone]];
+
+                UNCalendarNotificationTrigger *trigger = [UNCalendarNotificationTrigger triggerWithDateMatchingComponents:dateComponents repeats:NO];
+                NSString *identifier = @"DefaultNotificationIdentifier";
+                if(notification.userInfo!=nil && [notification.userInfo objectForKey:@"id"]!=nil) {
+                    identifier = [NSString stringWithFormat:@"%@",[notification.userInfo objectForKey:@"id"]];
+                }
+
+                UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:trigger];
+                UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+
+                //Cancel previous notification
+                [center removePendingNotificationRequestsWithIdentifiers:[NSArray arrayWithObject:identifier]];
+                [center addNotificationRequest:request withCompletionHandler:^(NSError * _Nullable error) {
+                    if (!error) {
+                        NSLog(@"---add NotificationRequest succeeded: %@, %@",notification.alertTitle,notification.alertBody);
+                    } else {
+                        NSLog(@"---add NotificationRequest  failed: %@",error);
+                    }
+
+                }];
+
+            } else {
+                [self scheduleLocalNotification:[notification copy]];
+            }
+
             [self fireEvent:@"schedule" notification:notification];
 
             if (notifications.count > 1) {
@@ -139,6 +188,7 @@
 
             if (!notification)
                 continue;
+
 
             [self.app cancelLocalNotification:notification];
             [self fireEvent:@"cancel" notification:notification];
@@ -509,6 +559,11 @@
  */
 - (void) cancelAllLocalNotifications
 {
+    if (IsAtLeastiOSVersion(@"10.0")) {
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        [center removeAllPendingNotificationRequests];
+    }
+
     [self.app cancelAllLocalNotifications];
     [self.app setApplicationIconBadgeNumber:0];
 }
@@ -518,6 +573,11 @@
  */
 - (void) clearAllLocalNotifications
 {
+    if (IsAtLeastiOSVersion(@"10.0")) {
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        [center removeAllPendingNotificationRequests];
+        [center removeAllDeliveredNotifications];
+    }
     [self.app clearAllLocalNotifications];
     [self.app setApplicationIconBadgeNumber:0];
 }
